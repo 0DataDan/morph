@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MORPH — Spatial Mesh Router</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-void: #060608;
+            --text-crisp: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #52525b;
+            --hairline: rgba(255, 255, 255, 0.08);
+            --hairline-strong: rgba(255, 255, 255, 0.16);
+
+            /* Functional Cell Colors */
+            --cell-corridor: #78716c;
+            --cell-packet: #fde047;
+            --cell-decay: #ea580c;
+            --cell-reroute: #c084fc;
+            --cell-attenuate: #e11d48;
+            --cell-tx: #ffffff;
+            --cell-rx: #34d399;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: var(--bg-void); 
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-crisp);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #canvas-container { 
+            width: 100vw; 
+            height: 100vh; 
+            cursor: crosshair; 
+        }
+
+        /* 1. NEUTRAL ARCHITECTURAL DRAFTING FRAME */
+        #viewport-frame {
+            position: fixed;
+            inset: 18px;
+            border: 1px solid var(--hairline);
+            border-radius: 12px;
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.75);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 18px 24px 20px;
+        }
+
+        /* Left Vertical Drafting Scale */
+        .drafting-scale {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            font-size: 9px;
+            color: rgba(245, 158, 11, 0.55);
+            letter-spacing: 0.05em;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .scale-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .scale-tick {
+            width: 8px;
+            height: 1px;
+            background: rgba(245, 158, 11, 0.45);
+        }
+
+        .scale-tick.minor {
+            width: 4px;
+            opacity: 0.45;
+        }
+
+        /* Top Unboxed Telemetry Ribbon */
+        .top-telemetry-ribbon {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            user-select: none;
+        }
+
+        .brand-cluster {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .brand-title {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: 0.18em;
+            color: var(--text-crisp);
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .brand-voxel {
+            width: 7px;
+            height: 7px;
+            background: #f59e0b;
+            border-radius: 1px;
+            transition: background 0.25s ease;
+        }
+
+        /* Unboxed Inline DEM Terrain Selector */
+        .terrain-switcher {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding-left: 16px;
+            pointer-events: auto;
+        }
+
+        .terrain-btn {
+            background: transparent;
+            border: none;
+            padding: 0 0 2px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 1px solid transparent;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .terrain-btn:hover {
+            color: var(--text-secondary);
+        }
+
+        .terrain-btn.active {
+            color: var(--text-crisp);
+            border-bottom-color: rgba(255, 255, 255, 0.45);
+        }
+
+        .terrain-sep {
+            font-size: 8px;
+            color: rgba(255, 255, 255, 0.15);
+            pointer-events: none;
+        }
+
+        .live-metrics-strip {
+            display: flex;
+            gap: 26px;
+            align-items: center;
+        }
+
+        .metric-unit {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+
+        .metric-unit-label {
+            font-size: 8px;
+            color: var(--text-muted);
+            letter-spacing: 0.12em;
+        }
+
+        .metric-unit-value {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-crisp);
+            letter-spacing: 0.03em;
+        }
+
+        .arch-trigger-btn {
+            pointer-events: auto;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.06em;
+            padding: 4px 2px;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .arch-trigger-btn:hover,
+        .arch-trigger-btn.active {
+            color: var(--text-crisp);
+            border-bottom-color: var(--text-crisp);
+        }
+
+        /* 2. COMPLETELY UNBOXED 3D VOXEL FLOATING COMMAND ROW */
+        .bottom-command-architecture {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        .voxel-dock-assembly {
+            display: flex;
+            align-items: flex-end;
+            gap: 28px;
+            pointer-events: auto;
+            user-select: none;
+            padding: 6px 12px 0;
+        }
+
+        .voxel-group {
+            display: flex;
+            align-items: flex-end;
+            gap: 22px;
+        }
+
+        .group-spacer {
+            width: 1px;
+            height: 22px;
+            background: rgba(255, 255, 255, 0.08);
+            margin-bottom: 6px;
+        }
+
+        /* Unboxed 3D Voxel Button */
+        .voxel-btn {
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            outline: none;
+            min-width: 44px;
+        }
+
+        .voxel-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 9.5px;
+            font-weight: 500;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+            transition: color 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .voxel-btn:hover .voxel-label {
+            color: var(--text-secondary);
+        }
+
+        .voxel-btn.active-tool .voxel-label,
+        .voxel-btn.toggle-on .voxel-label,
+        .voxel-btn.storm-on .voxel-label,
+        .voxel-btn.just-clicked .voxel-label {
+            color: var(--text-crisp);
+        }
+
+        /* 3D Isometric Prism Stage */
+        .iso-stage {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            perspective: 220px;
+            padding-bottom: 2px;
+        }
+
+        /* True 3D CSS Extruded Voxel Pillar */
+        .iso-prism {
+            --w: 11px;
+            --h: 5px;
+            --c-top: #52525b;
+            --c-left: #3f3f46;
+            --c-right: #27272a;
+            --glow: transparent;
+
+            position: relative;
+            width: var(--w);
+            height: var(--h);
+            transform-style: preserve-3d;
+            transform: rotateX(-26deg) rotateY(36deg) scaleY(0.55);
+            transform-origin: bottom center;
+            opacity: 0.42;
+            transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                        height 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 0.22s ease,
+                        filter 0.22s ease;
+        }
+
+        .iso-face {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            transition: background 0.22s ease, border-color 0.22s ease;
+        }
+
+        .iso-front {
+            width: var(--w);
+            height: var(--h);
+            background: var(--c-left);
+            transform: translateZ(calc(var(--w) / 2));
+        }
+
+        .iso-right {
+            width: var(--w);
+            height: var(--h);
+            background: var(--c-right);
+            transform: rotateY(90deg) translateZ(calc(var(--w) / 2));
+        }
+
+        .iso-top {
+            width: var(--w);
+            height: var(--w);
+            background: var(--c-top);
+            bottom: auto;
+            top: 0;
+            transform: rotateX(90deg) translateZ(calc(var(--w) / 2));
+        }
+
+        .voxel-btn:hover .iso-prism {
+            opacity: 0.92;
+            transform: rotateX(-26deg) rotateY(36deg) scaleY(1) translateY(-2px);
+        }
+
+        .voxel-btn.active-tool .iso-prism,
+        .voxel-btn.toggle-on .iso-prism,
+        .voxel-btn.storm-on .iso-prism {
+            opacity: 1;
+            transform: rotateX(-26deg) rotateY(36deg) scaleY(1) translateY(-3px);
+            filter: drop-shadow(0 0 8px var(--glow));
+        }
+
+        /* --- TOOL 1: CORRIDOR --- */
+        .voxel-btn[data-tool="1"] .iso-prism { --h: 9px; }
+        .voxel-btn[data-tool="1"]:hover .iso-prism,
+        .voxel-btn[data-tool="1"].active-tool .iso-prism {
+            --c-top: #a8a29e;
+            --c-left: #78716c;
+            --c-right: #44403c;
+            --glow: rgba(168, 162, 158, 0.35);
+        }
+        .voxel-btn[data-tool="1"].active-tool .iso-prism {
+            animation: corridorBreathe 2s infinite ease-in-out;
+        }
+        @keyframes corridorBreathe {
+            0%, 100% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1) translateY(-2px); }
+            50% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1.18) translateY(-4px); }
+        }
+
+        /* --- TOOL 2: PACKET --- */
+        .voxel-btn[data-tool="2"] .iso-prism { --h: 22px; }
+        .voxel-btn[data-tool="2"]:hover .iso-prism,
+        .voxel-btn[data-tool="2"].active-tool .iso-prism {
+            --c-top: #fef9c3;
+            --c-left: #fde047;
+            --c-right: #ca8a04;
+            --glow: rgba(253, 224, 71, 0.65);
+        }
+        .voxel-btn[data-tool="2"].active-tool .iso-prism {
+            animation: packetSurge 1.15s infinite ease-in-out;
+        }
+        @keyframes packetSurge {
+            0%, 100% { transform: rotateX(-26deg) rotateY(36deg) scaleY(0.85) translateY(-1px); }
+            50% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1.12) translateY(-5px); }
+        }
+
+        /* --- TOOL 3: ATTENUATE --- */
+        .voxel-btn[data-tool="-1"] .iso-prism { --h: 7px; }
+        .voxel-btn[data-tool="-1"]:hover .iso-prism,
+        .voxel-btn[data-tool="-1"].active-tool .iso-prism {
+            --c-top: #fb7185;
+            --c-left: #e11d48;
+            --c-right: #881337;
+            --glow: rgba(225, 29, 72, 0.7);
+        }
+        .voxel-btn[data-tool="-1"].active-tool .iso-prism {
+            animation: attenuateSlam 1.2s infinite ease-in-out;
+        }
+        @keyframes attenuateSlam {
+            0%, 100% { transform: rotateX(-26deg) rotateY(36deg) scaleY(0.45) translateY(0px); }
+            45% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1.35) translateY(-4px); }
+        }
+
+        /* --- TOOL 4: ERASE --- */
+        .voxel-btn[data-tool="0"] .iso-prism { --h: 11px; }
+        .voxel-btn[data-tool="0"] .iso-face {
+            background: transparent !important;
+            border: 1px dashed rgba(161, 161, 170, 0.55);
+        }
+        .voxel-btn[data-tool="0"].active-tool .iso-face {
+            border-style: solid;
+            border-color: #f4f4f5;
+        }
+        .voxel-btn[data-tool="0"].active-tool .iso-prism {
+            animation: eraseSpin 4s infinite linear;
+        }
+        @keyframes eraseSpin {
+            0% { transform: rotateX(-26deg) rotateY(36deg) translateY(-3px); }
+            100% { transform: rotateX(-26deg) rotateY(396deg) translateY(-3px); }
+        }
+
+        /* --- TOOL 5: DUAL RELAY --- */
+        .iso-pair {
+            display: flex;
+            align-items: flex-end;
+            gap: 5px;
+        }
+        .voxel-btn#btn-preset-clock .iso-prism { --w: 8px; --h: 14px; }
+        .voxel-btn#btn-preset-clock:hover .iso-prism,
+        .voxel-btn#btn-preset-clock.just-clicked .iso-prism {
+            --c-top: #6ee7b7;
+            --c-left: #34d399;
+            --c-right: #059669;
+            --glow: rgba(52, 211, 153, 0.55);
+            opacity: 1;
+        }
+        .voxel-btn#btn-preset-clock.just-clicked .iso-prism {
+            animation: clickPop 0.4s ease-out;
+        }
+
+        /* --- TOOL 6: STORM --- */
+        .voxel-btn#btn-auto-storm .iso-prism { --h: 15px; }
+        .voxel-btn#btn-auto-storm:hover .iso-prism,
+        .voxel-btn#btn-auto-storm.storm-on .iso-prism {
+            --c-top: #fda4af;
+            --c-left: #e11d48;
+            --c-right: #881337;
+            --glow: rgba(225, 29, 72, 0.75);
+        }
+        .voxel-btn#btn-auto-storm.storm-on .iso-prism {
+            animation: stormJitter 0.75s infinite steps(2);
+        }
+        @keyframes stormJitter {
+            0% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1.15) translateY(-5px); opacity: 1; }
+            50% { transform: rotateX(-26deg) rotateY(36deg) scaleY(0.5) translateY(0px); opacity: 0.45; }
+        }
+
+        /* --- TOOL 7: 3D DEM --- */
+        .voxel-btn#btn-camera-tilt .iso-prism:nth-child(1) { --w: 8px; --h: 10px; }
+        .voxel-btn#btn-camera-tilt .iso-prism:nth-child(2) { --w: 8px; --h: 18px; }
+        .voxel-btn#btn-camera-tilt:hover .iso-prism:nth-child(2),
+        .voxel-btn#btn-camera-tilt.toggle-on .iso-prism:nth-child(2) {
+            --c-top: #e9d5ff;
+            --c-left: #c084fc;
+            --c-right: #7e22ce;
+            --glow: rgba(192, 132, 252, 0.65);
+        }
+        .voxel-btn#btn-camera-tilt.toggle-on .iso-prism:nth-child(1) {
+            --c-top: #d4d4d8;
+            --c-left: #71717a;
+            --c-right: #3f3f46;
+        }
+
+        /* --- TOOL 8: STEP --- */
+        .voxel-btn#btn-step .iso-prism { --h: 13px; }
+        .voxel-btn#btn-step:hover .iso-prism,
+        .voxel-btn#btn-step.just-clicked .iso-prism {
+            --c-top: #fdba74;
+            --c-left: #ea580c;
+            --c-right: #9a3412;
+            --glow: rgba(234, 88, 12, 0.6);
+            opacity: 1;
+        }
+        .voxel-btn#btn-step.just-clicked .iso-prism {
+            animation: clickPop 0.35s ease-out;
+        }
+
+        /* --- TOOL 9: WIPE --- */
+        .voxel-btn#btn-clear .iso-prism { --h: 10px; }
+        .voxel-btn#btn-clear:hover .iso-prism {
+            --c-top: #d4d4d8;
+            --c-left: #71717a;
+            --c-right: #27272a;
+        }
+        .voxel-btn#btn-clear.just-clicked .iso-prism {
+            transform: rotateX(-26deg) rotateY(36deg) scaleY(0.1);
+            opacity: 0;
+        }
+
+        @keyframes clickPop {
+            0% { transform: rotateX(-26deg) rotateY(36deg) scaleY(0.5); }
+            55% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1.3) translateY(-5px); }
+            100% { transform: rotateX(-26deg) rotateY(36deg) scaleY(1) translateY(-2px); }
+        }
+
+        /* Center Radial Core Hub */
+        .radial-core-hub {
+            position: relative;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            background: rgba(6, 6, 8, 0.72);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding-top: 2px;
+            cursor: pointer;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .radial-core-hub:hover {
+            transform: scale(1.05);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .radial-svg {
+            position: absolute;
+            inset: -5px;
+            width: 78px;
+            height: 78px;
+            transform: rotate(-90deg);
+            pointer-events: none;
+        }
+
+        .ring-track {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.08);
+            stroke-width: 2;
+        }
+
+        .ring-ticks {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.16);
+            stroke-width: 1;
+            stroke-dasharray: 2 6;
+        }
+
+        .ring-meter {
+            fill: none;
+            stroke: #f59e0b;
+            stroke-width: 2.5;
+            stroke-linecap: butt;
+            stroke-dasharray: 201;
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 0.25s ease, stroke 0.25s ease;
+        }
+
+        .core-action-hint {
+            font-size: 8.5px;
+            font-weight: 600;
+            letter-spacing: 0.16em;
+            color: var(--text-crisp);
+            line-height: 1;
+            margin: 0;
+        }
+
+        /* 3. UNBOXED EDITORIAL NOTES PANEL */
+        #arch-drawer {
+            position: fixed;
+            top: 66px;
+            right: 40px;
+            bottom: 112px;
+            width: 356px;
+            background: rgba(9, 9, 12, 0.92);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--hairline-strong);
+            border-radius: 10px;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+            z-index: 25;
+            padding: 24px 26px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            pointer-events: auto;
+            transform: translateX(420px);
+            opacity: 0;
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+        }
+
+        #arch-drawer.open {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        #arch-drawer::-webkit-scrollbar {
+            width: 3px;
+        }
+        #arch-drawer::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--hairline);
+        }
+
+        .drawer-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            color: var(--text-crisp);
+        }
+
+        .drawer-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0 4px;
+            cursor: pointer;
+            transition: color 0.15s ease;
+        }
+
+        .drawer-close:hover {
+            color: var(--text-crisp);
+        }
+
+        .voxel-legend {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 18px 0 16px;
+            border-bottom: 1px solid var(--hairline);
+        }
+
+        .legend-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .voxel-bar {
+            width: 11px;
+            border-radius: 1px;
+        }
+
+        .legend-label {
+            font-size: 8px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .note-section {
+            padding: 16px 0;
+            border-bottom: 1px solid var(--hairline);
+        }
+
+        .note-section:last-of-type {
+            border-bottom: none;
+        }
+
+        .note-heading {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-crisp);
+            margin: 0 0 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .note-index {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .note-body {
+            font-family: 'Inter', sans-serif;
+            font-size: 11.5px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .note-body code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--text-crisp);
+        }
+
+        .note-math {
+            margin-top: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--cell-reroute);
+        }
+
+        .drawer-footer {
+            margin-top: auto;
+            padding-top: 14px;
+            border-top: 1px solid var(--hairline);
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+    </style>
+</head>
+<body>
+    <!-- Full-Viewport Neutral Architectural Frame -->
+    <div id="viewport-frame">
+        <!-- Left Vertical Drafting Ruler -->
+        <div class="drafting-scale">
+            <div class="scale-row"><span>04</span><div class="scale-tick"></div></div>
+            <div class="scale-row"><span>&nbsp;&nbsp;</span><div class="scale-tick minor"></div></div>
+            <div class="scale-row"><span>08</span><div class="scale-tick"></div></div>
+            <div class="scale-row"><span>&nbsp;&nbsp;</span><div class="scale-tick minor"></div></div>
+            <div class="scale-row"><span>12</span><div class="scale-tick"></div></div>
+            <div class="scale-row"><span>&nbsp;&nbsp;</span><div class="scale-tick minor"></div></div>
+            <div class="scale-row"><span>16</span><div class="scale-tick"></div></div>
+            <div class="scale-row"><span>&nbsp;&nbsp;</span><div class="scale-tick minor"></div></div>
+            <div class="scale-row"><span>24</span><div class="scale-tick"></div></div>
+            <div class="scale-row"><span>&nbsp;&nbsp;</span><div class="scale-tick minor"></div></div>
+            <div class="scale-row"><span>32</span><div class="scale-tick"></div></div>
+        </div>
+
+        <!-- Top Unboxed Telemetry Ribbon -->
+        <div class="top-telemetry-ribbon">
+            <div class="brand-cluster">
+                <div class="brand-title">
+                    <span class="brand-voxel" id="hud-led"></span>
+                    MORPH
+                </div>
+                <!-- Unboxed Inline DEM Terrain Switcher -->
+                <div class="terrain-switcher" id="terrain-switcher">
+                    <button class="terrain-btn active" data-terrain="synthetic" title="Default Synthetic Ridge/Basin DEM">SYNTHETIC</button>
+                    <span class="terrain-sep">·</span>
+                    <button class="terrain-btn" data-terrain="canyon" title="Grand Canyon Inner Gorge & Plateau Rim">CANYON</button>
+                    <span class="terrain-sep">·</span>
+                    <button class="terrain-btn" data-terrain="rainier" title="Mt. Rainier Stratovolcano Cone">RAINIER</button>
+                    <span class="terrain-sep">·</span>
+                    <button class="terrain-btn" data-terrain="basin" title="Coastal Mountain Range & Alluvial Watershed">BASIN</button>
+                </div>
+            </div>
+
+            <div class="live-metrics-strip">
+                <div class="metric-unit">
+                    <span class="metric-unit-label">SECTOR</span>
+                    <span id="hud-coords" class="metric-unit-value">[--, --]</span>
+                </div>
+                <div class="metric-unit">
+                    <span class="metric-unit-label">ELEVATION</span>
+                    <span id="hud-elev" class="metric-unit-value">---- m</span>
+                </div>
+                <div class="metric-unit">
+                    <span class="metric-unit-label">CELL</span>
+                    <span id="hud-state" class="metric-unit-value" style="color: var(--text-secondary);">STANDBY</span>
+                </div>
+                <div class="metric-unit">
+                    <span class="metric-unit-label">A* SOLVER</span>
+                    <span id="hud-astar" class="metric-unit-value" style="color: var(--cell-reroute);">IDLE</span>
+                </div>
+                <button id="btn-arch-toggle" class="arch-trigger-btn" title="Open Engine Notes">
+                    Notes
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Center: Unboxed Floating 3D Voxel Controls -->
+        <div class="bottom-command-architecture">
+            <div class="voxel-dock-assembly">
+                <!-- Left Group: Drawing & Strike Tools -->
+                <div class="voxel-group" id="tool-bar">
+                    <button data-tool="1" class="voxel-btn tool-btn active-tool" title="Draw Relay Corridor">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Corridor</span>
+                    </button>
+
+                    <button data-tool="2" class="voxel-btn tool-btn" title="Inject Telemetry Packet">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Packet</span>
+                    </button>
+
+                    <button data-tool="-1" class="voxel-btn tool-btn" title="Trigger Attenuation Strike">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Attenuate</span>
+                    </button>
+
+                    <button data-tool="0" class="voxel-btn tool-btn" title="Erase Cells">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Erase</span>
+                    </button>
+                </div>
+
+                <!-- Center Radial Core Gauge & Play/Pause Trigger -->
+                <div class="radial-core-hub" id="btn-play" title="Click to Play / Pause">
+                    <svg class="radial-svg" viewBox="0 0 78 78">
+                        <circle class="ring-track" cx="39" cy="39" r="32"></circle>
+                        <circle class="ring-ticks" cx="39" cy="39" r="36"></circle>
+                        <circle class="ring-meter" id="telemetry-ring" cx="39" cy="39" r="32"></circle>
+                    </svg>
+                    <div class="core-action-hint" id="play-state-label">ACTIVE</div>
+                </div>
+
+                <!-- Right Group: Topology & Playback -->
+                <div class="voxel-group">
+                    <button id="btn-preset-clock" class="voxel-btn" title="Restore Dual Relay">
+                        <div class="iso-stage">
+                            <div class="iso-pair">
+                                <div class="iso-prism">
+                                    <div class="iso-face iso-top"></div>
+                                    <div class="iso-face iso-front"></div>
+                                    <div class="iso-face iso-right"></div>
+                                </div>
+                                <div class="iso-prism">
+                                    <div class="iso-face iso-top"></div>
+                                    <div class="iso-face iso-front"></div>
+                                    <div class="iso-face iso-right"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Dual Relay</span>
+                    </button>
+
+                    <button id="btn-auto-storm" class="voxel-btn" title="Toggle Autonomous Storm Strikes">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Storm</span>
+                    </button>
+
+                    <button id="btn-camera-tilt" class="voxel-btn toggle-on" title="Toggle 3D DEM View">
+                        <div class="iso-stage">
+                            <div class="iso-pair">
+                                <div class="iso-prism">
+                                    <div class="iso-face iso-top"></div>
+                                    <div class="iso-face iso-front"></div>
+                                    <div class="iso-face iso-right"></div>
+                                </div>
+                                <div class="iso-prism">
+                                    <div class="iso-face iso-top"></div>
+                                    <div class="iso-face iso-front"></div>
+                                    <div class="iso-face iso-right"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">3D DEM</span>
+                    </button>
+
+                    <div class="group-spacer"></div>
+
+                    <button id="btn-step" class="voxel-btn" title="Advance Single Tick">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Step</span>
+                    </button>
+
+                    <button id="btn-clear" class="voxel-btn" title="Clear Grid">
+                        <div class="iso-stage">
+                            <div class="iso-prism">
+                                <div class="iso-face iso-top"></div>
+                                <div class="iso-face iso-front"></div>
+                                <div class="iso-face iso-right"></div>
+                            </div>
+                        </div>
+                        <span class="voxel-label">Wipe</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unboxed Editorial Notes Panel -->
+    <aside id="arch-drawer" aria-label="Engine Notes">
+        <div class="drawer-header">
+            <span class="drawer-title">Engine Notes</span>
+            <button id="btn-arch-close" class="drawer-close" title="Close (Esc)">&times;</button>
+        </div>
+
+        <div class="voxel-legend" title="Extruded cell states on the 3D terrain">
+            <div class="legend-item">
+                <div class="voxel-bar" style="height: 8px; background: #44403c;"></div>
+                <span class="legend-label">Corridor</span>
+            </div>
+            <div class="legend-item">
+                <div class="voxel-bar" style="height: 22px; background: #fde047;"></div>
+                <span class="legend-label">Packet</span>
+            </div>
+            <div class="legend-item">
+                <div class="voxel-bar" style="height: 14px; background: #ea580c;"></div>
+                <span class="legend-label">Decay</span>
+            </div>
+            <div class="legend-item">
+                <div class="voxel-bar" style="height: 18px; background: #c084fc;"></div>
+                <span class="legend-label">Reroute</span>
+            </div>
+            <div class="legend-item">
+                <div class="voxel-bar" style="height: 4px; background: #e11d48;"></div>
+                <span class="legend-label">Attenuate</span>
+            </div>
+        </div>
+
+        <div class="note-section">
+            <h3 class="note-heading"><span class="note-index">01</span> Instanced 3D DEM Terrain</h3>
+            <p class="note-body">
+                All 10,000 terrain blocks render in a single WebGL draw call using <code>InstancedMesh</code>. Switching between Synthetic, Grand Canyon, Mt. Rainier, and Coastal Basin profiles morphs the heightfield in real time via flat typed arrays.
+            </p>
+        </div>
+
+        <div class="note-section">
+            <h3 class="note-heading"><span class="note-index">02</span> Min-Heap A* &amp; Global Failover</h3>
+            <p class="note-body">
+                Powered by an O(log N) binary <code>MinHeap</code> and pre-allocated typed arrays. Local strikes trigger a perimeter detour; if compound damage severs the network to 0%, a global TX→RX pass synthesizes a fresh valley corridor while discounting surviving traces:
+            </p>
+            <div class="note-math">cost = 1 + |Δz|·14 + max(0, z - 0.5)·1.8</div>
+        </div>
+
+        <div class="note-section">
+            <h3 class="note-heading"><span class="note-index">03</span> Signal Rules &amp; Drawing</h3>
+            <p class="note-body">
+                Packets propagate using Wireworld cellular rules, cooling through a Decay state back into Corridor. Cursor strokes project onto the tilted <code>Z = 0</code> plane via raycasting and fill gaps with Bresenham line interpolation.
+            </p>
+        </div>
+
+        <div class="drawer-footer">
+            <span>100×100 RASTER</span>
+            <span>MIN-HEAP A*</span>
+            <span>THREE.JS</span>
+        </div>
+    </aside>
+    
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+            }
+        }
+        </script>
+        <script type="module" src="./main.js"></script>
+    </body>
+    </html>
